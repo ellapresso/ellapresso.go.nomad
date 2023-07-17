@@ -1,6 +1,9 @@
 package accounts
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // Account struct
 type Account struct {
@@ -43,4 +46,10 @@ func (a *Account) ChangeOwner(newOwner string) {
 // Owner of the account
 func (a Account) Owner() string {
 	return a.owner
+}
+
+// String is the method that print the struct
+// String 함수를 호출하지 않고 new Account를 만들어서 출력해도 나옴.
+func (a Account) String() string {
+	return fmt.Sprint(a.Owner(), "'s account.\nHas: ", a.Balance(), " dollars")
 }

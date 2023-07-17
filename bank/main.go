@@ -21,4 +21,6 @@ func main() {
 	// fmt.Println(account.Balance())
 
 	fmt.Println(account.Balance(), account.Owner())
+	fmt.Println(account)
+	// fmt.Println(account.String())
 }
