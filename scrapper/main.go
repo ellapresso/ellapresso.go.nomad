@@ -5,25 +5,72 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/PuerkitoBio/goquery"
 )
+
+type extractedJob struct {
+	id       string
+	title    string
+	location string
+	salary   string
+	summary  string
+}
 
 var baseURL string = "https://www.saramin.co.kr/zf_user/search/recruit?searchword=nodejs&recruitPageCount=40"
 
 // https://www.saramin.co.kr/zf_user/search/recruit?searchword=nodejs&recruitPage=8&recruitPageCount=40
 
 func main() {
+	var jobs []extractedJob
 	totalPages := getPages()
 
 	for i := 0; i < totalPages; i++ {
-		getPage(i)
+		extractedJobs := getPage(i + 1)
+		jobs = append(jobs, extractedJobs...)
+	}
+
+	fmt.Println(jobs)
+}
+
+func getPage(page int) []extractedJob {
+	var jobs []extractedJob
+	pageURL := baseURL + "&recruitPage=" + strconv.Itoa(page)
+	fmt.Println("Requesting", pageURL)
+	res, err := http.Get(pageURL)
+
+	checkErr(err)
+	checkCode(res)
+
+	defer res.Body.Close() // 메모리 누수 방지
+
+	doc, err := goquery.NewDocumentFromReader(res.Body)
+	checkErr(err)
+
+	searchCards := doc.Find(".item_recruit")
+
+	searchCards.Each(func(i int, card *goquery.Selection) {
+		job := extractJob(card)
+		jobs = append(jobs, job)
+	})
+	return jobs
+}
+
+func extractJob(card *goquery.Selection) extractedJob {
+	id, _ := card.Attr("value")
+	title := cleanString(card.Find(".job_tit>a").Text())
+	location := cleanString(card.Find(".job_condition>span>a").Text())
+
+	return extractedJob{
+		id:       id,
+		title:    title,
+		location: location,
 	}
 }
 
-func getPage(page int) {
-	pageURL := baseURL + "&recruitPage=" + strconv.Itoa(page)
-	fmt.Println("Requesting", pageURL)
+func cleanString(str string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(str)), " ")
 }
 
 func getPages() int {
@@ -33,8 +80,10 @@ func getPages() int {
 	checkCode(res)
 
 	defer res.Body.Close() // 메모리 누수 방지
+
 	doc, err := goquery.NewDocumentFromReader(res.Body)
 	checkErr(err)
+
 	doc.Find(".pagination").Each(func(i int, s *goquery.Selection) {
 		pages = s.Find("a").Length()
 	})
