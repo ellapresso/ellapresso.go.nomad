@@ -34,7 +34,7 @@ func main() {
 	}
 
 	writeJobs(jobs)
-	// fmt.Println(jobs)
+	fmt.Println("make Jobs.csv DONE!!")
 }
 
 func writeJobs(jobs []extractedJob) {
@@ -97,7 +97,42 @@ func cleanString(str string) string {
 
 func getPages() int {
 	pages := 0
-	res, err := http.Get(baseURL)
+	doc, _ := getDoc(baseURL)
+
+	flg := true
+
+	doc.Find(".pagination").Each(func(i int, s *goquery.Selection) {
+		pages = s.Find("a").Length()
+
+		fmt.Println("1st", pages)
+
+		for flg == true {
+			if s.Find(".btnNext").Text() == "다음" {
+
+				fmt.Println("next page", strconv.Itoa(pages+1))
+
+				doc, _ := getDoc(baseURL + "&recruitPage=" + strconv.Itoa(pages+1))
+
+				doc.Find(".pagination").Each(func(i2 int, s2 *goquery.Selection) {
+					pages += s2.Find("a").Length() - 1
+					if s2.Find(".btnNext").Text() != "다음" {
+						flg = false
+						fmt.Println("페이지 없음")
+					}
+				})
+			} else {
+				flg = false
+			}
+		}
+	})
+
+	fmt.Println("total pages", pages)
+
+	return pages
+}
+
+func getDoc(url string) (*goquery.Document, error) {
+	res, err := http.Get(url)
 	checkErr(err)
 	checkCode(res)
 
@@ -106,11 +141,7 @@ func getPages() int {
 	doc, err := goquery.NewDocumentFromReader(res.Body)
 	checkErr(err)
 
-	doc.Find(".pagination").Each(func(i int, s *goquery.Selection) {
-		pages = s.Find("a").Length()
-	})
-
-	return pages
+	return doc, err
 }
 
 func checkErr(err error) {
