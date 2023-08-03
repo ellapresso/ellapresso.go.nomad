@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -25,39 +26,30 @@ var baseURL string = "https://www.saramin.co.kr/zf_user/search/recruit?searchwor
 // https://www.saramin.co.kr/zf_user/search/recruit?searchword=nodejs&recruitPage=8&recruitPageCount=40
 
 func main() {
+	start := time.Now()
 	var jobs []extractedJob
+	c := make(chan []extractedJob) // 여러개의 채널정보가 전달됨
 	totalPages := getPages()
 
-	for i := 0; i < totalPages; i++ {
-		extractedJobs := getPage(i + 1)
+	for i := 1; i < totalPages; i++ {
+		go getPage(i, c)
+	}
+
+	for i := 1; i < totalPages; i++ {
+		extractedJobs := <-c
 		jobs = append(jobs, extractedJobs...)
 	}
 
 	writeJobs(jobs)
-	fmt.Println("make Jobs.csv DONE!!")
+	end := time.Since(start)
+	fmt.Println("make Jobs.csv DONE!!", end)
+	// goroutine 사용 전 : 25.5838915s / 24.515903s / 24.144703792s
+	// goroutine 사용 후 : 5.070180458s / 3.997990709s / 3.787966166s
 }
 
-func writeJobs(jobs []extractedJob) {
-	file, err := os.Create("jobs.csv")
-	checkErr(err)
-
-	w := csv.NewWriter(file)
-	defer w.Flush()
-
-	headers := []string{"ID", "Title", "Location", "Salary", "Summary"}
-
-	wErr := w.Write(headers)
-	checkErr(wErr)
-
-	for _, job := range jobs {
-		jobSlice := []string{"https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=" + job.id, job.title, job.location}
-		jwErr := w.Write(jobSlice)
-		checkErr(jwErr)
-	}
-}
-
-func getPage(page int) []extractedJob {
+func getPage(page int, mainChannel chan<- []extractedJob) {
 	var jobs []extractedJob
+	c := make(chan extractedJob)
 	pageURL := baseURL + "&recruitPage=" + strconv.Itoa(page)
 	fmt.Println("Requesting", pageURL)
 	res, err := http.Get(pageURL)
@@ -73,18 +65,23 @@ func getPage(page int) []extractedJob {
 	searchCards := doc.Find(".item_recruit")
 
 	searchCards.Each(func(i int, card *goquery.Selection) {
-		job := extractJob(card)
-		jobs = append(jobs, job)
+		go extractJob(card, c)
 	})
-	return jobs
+
+	for i := 0; i < searchCards.Length(); i++ {
+		job := <-c
+		jobs = append(jobs, job)
+	}
+
+	mainChannel <- jobs
 }
 
-func extractJob(card *goquery.Selection) extractedJob {
+func extractJob(card *goquery.Selection, c chan<- extractedJob) {
 	id, _ := card.Attr("value")
 	title := cleanString(card.Find(".job_tit>a").Text())
 	location := cleanString(card.Find(".job_condition>span>a").Text())
 
-	return extractedJob{
+	c <- extractedJob{
 		id:       id,
 		title:    title,
 		location: location,
@@ -103,30 +100,23 @@ func getPages() int {
 
 	doc.Find(".pagination").Each(func(i int, s *goquery.Selection) {
 		pages = s.Find("a").Length()
-
-		fmt.Println("1st", pages)
-
 		for flg == true {
 			if s.Find(".btnNext").Text() == "다음" {
-
-				fmt.Println("next page", strconv.Itoa(pages+1))
-
 				doc, _ := getDoc(baseURL + "&recruitPage=" + strconv.Itoa(pages+1))
 
 				doc.Find(".pagination").Each(func(i2 int, s2 *goquery.Selection) {
 					pages += s2.Find("a").Length() - 1
 					if s2.Find(".btnNext").Text() != "다음" {
 						flg = false
-						fmt.Println("페이지 없음")
+						pages -= 1
 					}
 				})
 			} else {
 				flg = false
+				pages -= 1
 			}
 		}
 	})
-
-	fmt.Println("total pages", pages)
 
 	return pages
 }
@@ -142,6 +132,25 @@ func getDoc(url string) (*goquery.Document, error) {
 	checkErr(err)
 
 	return doc, err
+}
+
+func writeJobs(jobs []extractedJob) {
+	file, err := os.Create("jobs.csv")
+	checkErr(err)
+
+	w := csv.NewWriter(file)
+	defer w.Flush()
+
+	headers := []string{"LINK", "Title", "Location", "Salary", "Summary"}
+
+	wErr := w.Write(headers)
+	checkErr(wErr)
+
+	for _, job := range jobs {
+		jobSlice := []string{"https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=" + job.id, job.title, job.location}
+		jwErr := w.Write(jobSlice)
+		checkErr(jwErr)
+	}
 }
 
 func checkErr(err error) {
